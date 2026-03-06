@@ -70,9 +70,9 @@
   <!-- Camera -->
   <div class="scan-area"><div id="reader"></div></div>
 
-  <!-- Manual token entry -->
+  <!-- Manual lookup -->
   <div style="position:fixed;bottom:14px;left:14px;z-index:50;display:flex;gap:8px;">
-    <input type="text" id="tokenInput" placeholder="Device token…"
+    <input type="text" id="tokenInput" placeholder="Car # or name…"
            style="width:160px;margin:0;padding:8px 12px;font-size:0.82rem;border-radius:100px;background:rgba(0,0,0,.7);border:1px solid #444;color:#fff;backdrop-filter:blur(8px);" />
     <button onclick="manualLookup()" style="background:rgba(0,0,0,.7);backdrop-filter:blur(8px);color:#fff;border:1px solid #444;border-radius:100px;padding:8px 14px;font-size:0.82rem;font-weight:700;cursor:pointer;">Go</button>
   </div>
@@ -106,7 +106,7 @@
     ({ ctx, event, eventId } = await adminBoot());
 
     // Fix nav link
-    document.getElementById("navHub").href = `/admin/#/${ctx.org}/${ctx.name}`;
+    document.getElementById("navHub").href = `/DerbySystem/admin#/${ctx.org}/${ctx.name}`;
 
     await loadTally();
     startScanner();
@@ -147,17 +147,35 @@
       .eq("event_id", eventId);
 
     if (error || !cars?.length) {
-      toast("No cars found for this code", false);
+      toast("No cars found for this QR code", false);
       return;
     }
 
     showFamily(cars, token);
   }
 
-  function manualLookup() {
-    const token = document.getElementById("tokenInput").value.trim();
-    if (!token) return;
-    lookupToken(token);
+  async function manualLookup() {
+    const raw = document.getElementById("tokenInput").value.trim();
+    if (!raw) return;
+
+    let query = sb.from("cars").select("*").eq("event_id", eventId);
+
+    const asNum = parseInt(raw, 10);
+    if (!isNaN(asNum) && String(asNum) === raw) {
+      // Numeric — look up by car number
+      query = query.eq("car_number", asNum);
+    } else {
+      // Text — look up by name (case-insensitive contains)
+      query = query.ilike("kid_name", `%${raw}%`);
+    }
+
+    const { data: cars, error } = await query;
+    if (error || !cars?.length) {
+      toast("No cars found for \"" + raw + "\"", false);
+      return;
+    }
+    showFamily(cars, null);
+    document.getElementById("tokenInput").value = "";
   }
 
   function showFamily(cars, token) {
