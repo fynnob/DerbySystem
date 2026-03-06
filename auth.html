@@ -26,33 +26,46 @@
     <div class="card" id="emailCard">
       <div class="card-title">Scoutmaster Sign In</div>
       <p style="margin-bottom:20px; font-size:0.88rem;">
-        We'll email you a one-click magic link — no password needed.
+        Enter your email and we'll send a 6-digit code to sign in — no password needed.
       </p>
       <label for="emailInput">Email address</label>
       <input type="email" id="emailInput" placeholder="you@example.com"
              autocomplete="email" inputmode="email"
-             onkeydown="if(event.key==='Enter') sendLink()" />
+             onkeydown="if(event.key==='Enter') doSendCode()" />
       <p id="emailErr" style="color:var(--danger); font-size:0.82rem; min-height:1.2em; margin-top:-8px; margin-bottom:12px;"></p>
-      <button class="btn btn-primary btn-lg btn-full" id="sendBtn" onclick="sendLink()">
-        Send Magic Link →
+      <button class="btn btn-primary btn-lg btn-full" id="sendBtn" onclick="doSendCode()">
+        Send Code →
       </button>
       <p style="font-size:0.78rem; color:var(--muted2); margin-top:16px; text-align:center;">
         <a href="/">Learn about DerbySystem</a>
       </p>
     </div>
 
-    <!-- Step 2: check email -->
-    <div class="card" id="sentCard" style="display:none; text-align:center;">
-      <div style="font-size:2.5rem; margin-bottom:12px;">📬</div>
-      <h2 style="margin-bottom:8px;">Check your email</h2>
-      <p id="sentMsg" style="margin-bottom:20px;">We sent a sign-in link.</p>
-      <button class="btn btn-ghost btn-full" onclick="resetForm()">Use a different email</button>
+    <!-- Step 2: enter code -->
+    <div class="card" id="codeCard" style="display:none;">
+      <div class="card-title">Enter your code</div>
+      <p id="codeMsg" style="margin-bottom:20px; font-size:0.88rem;"></p>
+      <label for="codeInput">6-digit code</label>
+      <input type="text" id="codeInput" placeholder="123456"
+             autocomplete="one-time-code" inputmode="numeric"
+             maxlength="6" pattern="[0-9]{6}"
+             style="font-size:1.6rem; letter-spacing:0.3em; text-align:center;"
+             onkeydown="if(event.key==='Enter') doVerify()" />
+      <p id="codeErr" style="color:var(--danger); font-size:0.82rem; min-height:1.2em; margin-top:-8px; margin-bottom:12px;"></p>
+      <button class="btn btn-primary btn-lg btn-full" id="verifyBtn" onclick="doVerify()">
+        Sign In →
+      </button>
+      <button class="btn btn-ghost btn-full" style="margin-top:8px;" onclick="resetForm()">
+        Use a different email
+      </button>
     </div>
 
   </div>
 </div>
 
 <script>
+  let _pendingEmail = "";
+
   // Already signed in? Redirect immediately.
   (async () => {
     const { data: { session } } = await sb.auth.getSession();
@@ -70,12 +83,7 @@
     }
   }
 
-  // Handle magic-link token in URL hash after email click
-  sb.auth.onAuthStateChange((event, session) => {
-    if (event === "SIGNED_IN" && session) redirect();
-  });
-
-  async function sendLink() {
+  async function doSendCode() {
     const email = document.getElementById("emailInput").value.trim();
     if (!email || !email.includes("@")) {
       document.getElementById("emailErr").textContent = "Enter a valid email address";
@@ -88,30 +96,65 @@
 
     let result;
     try {
-      result = await sendMagicLink(email);
+      result = await sendOtp(email);
     } catch (err) {
       result = { error: { message: err.message || "Unknown error" } };
     }
+
     if (result.error) {
       document.getElementById("emailErr").textContent = result.error.message;
       btn.disabled = false;
-      btn.textContent = "Send Magic Link →";
+      btn.textContent = "Send Code →";
       return;
     }
 
+    _pendingEmail = email;
     document.getElementById("emailCard").style.display = "none";
-    document.getElementById("sentCard").style.display = "block";
-    document.getElementById("sentMsg").textContent =
-      `We sent a sign-in link to ${email}. Click it to continue.`;
+    document.getElementById("codeCard").style.display = "block";
+    document.getElementById("codeMsg").textContent =
+      `We sent a 6-digit code to ${email}. Enter it below.`;
+    document.getElementById("codeInput").focus();
+  }
+
+  async function doVerify() {
+    const token = document.getElementById("codeInput").value.replace(/\D/g, "").slice(0, 6);
+    if (token.length !== 6) {
+      document.getElementById("codeErr").textContent = "Enter the full 6-digit code";
+      return;
+    }
+    document.getElementById("codeErr").textContent = "";
+    const btn = document.getElementById("verifyBtn");
+    btn.disabled = true;
+    btn.textContent = "Verifying…";
+
+    let result;
+    try {
+      result = await verifyCode(_pendingEmail, token);
+    } catch (err) {
+      result = { error: { message: err.message || "Unknown error" } };
+    }
+
+    if (result.error) {
+      document.getElementById("codeErr").textContent = result.error.message;
+      btn.disabled = false;
+      btn.textContent = "Sign In →";
+      return;
+    }
+
+    redirect();
   }
 
   function resetForm() {
+    _pendingEmail = "";
     document.getElementById("emailCard").style.display = "block";
-    document.getElementById("sentCard").style.display = "none";
+    document.getElementById("codeCard").style.display = "none";
     document.getElementById("emailInput").value = "";
+    document.getElementById("codeInput").value = "";
+    document.getElementById("emailErr").textContent = "";
+    document.getElementById("codeErr").textContent = "";
     const btn = document.getElementById("sendBtn");
     btn.disabled = false;
-    btn.textContent = "Send Magic Link →";
+    btn.textContent = "Send Code →";
   }
 </script>
 
