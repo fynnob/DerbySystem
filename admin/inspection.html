@@ -84,7 +84,7 @@
 </div>
 
 <!-- Family overlay -->
-<div class="family-overlay" id="familyOverlay" onclick="dismissFamily()">
+<div class="family-overlay" id="familyOverlay">
   <div class="family-sheet" id="familySheet" onclick="event.stopPropagation()">
     <div class="sheet-handle"></div>
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
@@ -100,9 +100,10 @@
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
   let ctx, event, eventId;
-  let lastToken  = null;
-  let lastScanAt = 0;
-  const DEBOUNCE = 3000;
+  let lastToken        = null;
+  let lastScanAt       = 0;
+  const DEBOUNCE       = 3000;
+  let currentFamilyCarIds = [];
 
   (async () => {
     ({ ctx, event, eventId } = await adminBoot());
@@ -208,29 +209,38 @@
   }
 
   function showFamily(cars, token) {
+    currentFamilyCarIds = cars.map(c => c.id);
+    // Sort ascending by id so lower id is at top, higher id at bottom
+    cars = [...cars].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
     document.getElementById("familyTitle").textContent = `${cars.length} Car${cars.length > 1 ? "s" : ""}`;
     document.getElementById("carList").innerHTML = cars.map(c => {
       const statusColor = { legal: "var(--success)", not_legal: "var(--danger)", pending: "var(--muted2)" };
       const statusLabel = { legal: "Legal ✓", not_legal: "Not Legal ✗", pending: "Pending" };
-      const img = `<div style="width:64px; height:64px; border-radius:8px; background:var(--surface2); display:flex; align-items:center; justify-content:center; font-size:2rem; flex-shrink:0;">🚗</div>`;
+      const legalDim    = c.legal_status === "not_legal" ? "opacity:0.3; pointer-events:none;" : "";
+      const illegalDim  = c.legal_status === "legal"     ? "opacity:0.3; pointer-events:none;" : "";
       return `
         <div class="fam-car">
-          ${img}
           <div style="flex:1; min-width:0;">
             <div class="fam-num">#${c.car_number}</div>
             <div class="fam-name">${c.kid_name}</div>
             <div style="font-size:0.78rem; font-weight:700; color:${statusColor[c.legal_status]};">${statusLabel[c.legal_status]}</div>
           </div>
           <div class="fam-actions">
-            <button class="btn btn-sm" style="background:var(--success-bg); border:2px solid var(--success); color:var(--success); min-height:44px;"
+            <button class="btn btn-sm" style="background:var(--success-bg); border:2px solid var(--success); color:var(--success); min-height:44px; ${legalDim}"
                     onclick="setStatus('${c.id}', 'legal')">✓ Legal</button>
-            <button class="btn btn-sm" style="background:var(--danger-bg); border:2px solid var(--danger); color:var(--danger); min-height:44px;"
+            <button class="btn btn-sm" style="background:var(--danger-bg); border:2px solid var(--danger); color:var(--danger); min-height:44px; ${illegalDim}"
                     onclick="setStatus('${c.id}', 'not_legal')">✗ Not Legal</button>
           </div>
         </div>`;
     }).join("");
 
     document.getElementById("familyOverlay").classList.add("open");
+  }
+
+  async function refreshFamilySheet() {
+    if (!currentFamilyCarIds.length) return;
+    const { data: cars } = await sb.from("cars").select("*").in("id", currentFamilyCarIds);
+    if (cars?.length) showFamily(cars, null);
   }
 
   function dismissFamily() {
@@ -247,10 +257,8 @@
 
     toast(status === "legal" ? "Marked Legal ✓" : "Marked Not Legal ✗", status === "legal");
 
-    // Refresh family sheet
-    lastToken = null; // allow re-scan
-    dismissFamily();
     await loadTally();
+    await refreshFamilySheet();
   }
 
   function toast(msg, ok = true) {
