@@ -189,8 +189,13 @@
 
   async function confirmRerace() {
     if (!currentHeatId) return;
+    const h = allHeats.find(x => x.id === currentHeatId);
     await sb.from("heat_results").delete().eq("heat_id", currentHeatId);
     await sb.from("heats").update({ status: "active" }).eq("id", currentHeatId);
+    sb.channel('rerace-control-' + eventId).send({
+      type: 'broadcast', event: 'rerace',
+      payload: { round: h?.round_number, heat: h?.heat_number }
+    });
     closeRerace();
     toast("Heat reset — re-run when ready");
     await init();

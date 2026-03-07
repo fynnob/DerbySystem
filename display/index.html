@@ -148,7 +148,8 @@
 
     document.title        = event.name + ' — Live';
     document.getElementById('hdrTitle').textContent    = event.track_name || event.name;
-    document.getElementById('hdrSubtitle').textContent = event.event_date || 'Race Day';
+    const _expiry = new Date(new Date(event.created_at).getTime() + 60 * 24 * 60 * 60 * 1000);
+    document.getElementById('hdrSubtitle').textContent = 'Expires ' + _expiry.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
     await refresh();
 

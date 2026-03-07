@@ -69,6 +69,7 @@
     <button class="tab-btn active" onclick="switchTab('quick')"   data-tab="quick">⚡ Quick</button>
     <button class="tab-btn"        onclick="switchTab('message')" data-tab="message">💬 Message</button>
     <button class="tab-btn"        onclick="switchTab('timer')"   data-tab="timer">⏱ Timer</button>
+    <button class="tab-btn"        onclick="switchTab('images')"  data-tab="images">🖼 Images</button>
     <button class="tab-btn"        onclick="switchTab('live')"    data-tab="live">📊 Live</button>
     <button class="tab-btn"        onclick="switchTab('slides')"  data-tab="slides">📽 Slides</button>
   </div>
@@ -147,6 +148,34 @@
       <div class="card-title">Stopwatch</div>
       <button class="btn btn-primary btn-full" onclick="pushSlide({type:'stopwatch'})">▶ Start Stopwatch</button>
       <button class="btn btn-ghost btn-full" style="margin-top:8px;" onclick="pushSlide({type:'idle'})">⏹ Stop &amp; Clear</button>
+    </div>
+  </div>
+
+  <!-- ════ Images ════ -->
+  <div id="tab-images" class="tab-panel">
+    <div class="card">
+      <div class="card-title">Push Image</div>
+      <p style="font-size:0.82rem; color:var(--muted2); margin-bottom:12px;">
+        Upload an image (sponsor logo, schedule, etc.) to show fullscreen on the display.
+        Stored in the <strong>announcements</strong> Supabase bucket.
+      </p>
+      <input type="file" id="imgFile" accept="image/*" onchange="previewUploadImg(this)" style="margin-bottom:10px;" />
+      <div id="uploadPreviewWrap" style="display:none; margin-bottom:10px;">
+        <img id="uploadPreview" src="" alt="preview"
+             style="max-width:100%; max-height:200px; border-radius:10px; border:1px solid var(--border); object-fit:contain;" />
+      </div>
+      <p id="uploadErr" style="color:var(--danger); font-size:0.82rem; min-height:1.2em;"></p>
+      <button class="btn btn-gold btn-full" id="uploadImgBtn" onclick="uploadAndPush()">Upload &amp; Show</button>
+    </div>
+    <div class="card">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+        <div class="card-title" style="margin:0;">Saved Images</div>
+        <button class="btn btn-ghost btn-sm" onclick="loadImages()">↻ Refresh</button>
+      </div>
+      <p style="font-size:0.82rem; color:var(--muted2); margin-bottom:12px;">Tap any image to push it to the screen.</p>
+      <div id="imageGrid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(110px,1fr)); gap:8px;">
+        <span class="spinner"></span>
+      </div>
     </div>
   </div>
 
@@ -230,9 +259,9 @@
     document.getElementById('navBrand').textContent = '🏁 ' + (event.track_name || 'Derby');
     document.getElementById('navLinks').innerHTML   = buildAdminNav(ctx, 'announcer');
 
-    const hash = `#/${ctx.org}/${ctx.name}`;
-    screenUrl   = `${location.origin}/DerbySystem/display${hash}`;
-    regUrl      = `${location.origin}/DerbySystem/event/${hash}`;
+    const hash = `#/${ctx.orgType}/${ctx.orgNumber}/${ctx.eventSeq}`;
+    screenUrl   = `${location.origin}/DerbySystem/display/screen.html${hash}`;
+    regUrl      = `${location.origin}/DerbySystem/event/index.html${hash}`;
     document.getElementById('openScreenLink').href = screenUrl;
   })();
 
@@ -253,6 +282,7 @@
       b.classList.toggle('active', b.dataset.tab === name));
     document.querySelectorAll('.tab-panel').forEach(p =>
       p.classList.toggle('active', p.id === 'tab-' + name));
+    if (name === 'images') loadImages();
   }
 
   // ── Broadcast ─────────────────────────────────────────────────
@@ -335,6 +365,71 @@
     document.getElementById('gSlidesCounter').textContent = `Slide ${_localSlidesIndex}`;
     setNowShowing('gslides', `Slide ${_localSlidesIndex}`);
     toast('Navigating…');
+  }
+
+  // ── Image upload ──────────────────────────────────────────────
+  function previewUploadImg(input) {
+    const file = input.files?.[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+      document.getElementById('uploadPreview').src = e.target.result;
+      document.getElementById('uploadPreviewWrap').style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function uploadAndPush() {
+    const fileInput = document.getElementById('imgFile');
+    const file = fileInput.files?.[0];
+    if (!file) { toast('Choose an image first.', false); return; }
+    const btn = document.getElementById('uploadImgBtn');
+    btn.disabled = true; btn.textContent = 'Uploading…';
+    document.getElementById('uploadErr').textContent = '';
+    try {
+      const ext      = file.name.split('.').pop() || 'jpg';
+      const fileName = `img_${Date.now()}.${ext}`;
+      const { error: upErr } = await sb.storage
+        .from('announcements')
+        .upload(fileName, file, { contentType: file.type, upsert: false });
+      if (upErr) throw new Error(upErr.message);
+      const url = sb.storage.from('announcements').getPublicUrl(fileName).data.publicUrl;
+      await pushSlide({ type: 'image', url });
+      toast('Uploaded & showing on screen!');
+      fileInput.value = '';
+      document.getElementById('uploadPreviewWrap').style.display = 'none';
+      loadImages();
+    } catch (err) {
+      document.getElementById('uploadErr').textContent = 'Upload failed: ' + err.message;
+      toast('Upload failed.', false);
+    } finally {
+      btn.disabled = false; btn.textContent = 'Upload & Show';
+    }
+  }
+
+  async function loadImages() {
+    const grid = document.getElementById('imageGrid');
+    if (!grid) return;
+    grid.innerHTML = '<span class="spinner"></span>';
+    const { data: files, error } = await sb.storage.from('announcements').list('', {
+      limit: 100, sortBy: { column: 'created_at', order: 'desc' }
+    });
+    if (error) {
+      grid.innerHTML = `<div style="color:var(--danger); font-size:0.82rem;">Could not load images: ${error.message}</div>`;
+      return;
+    }
+    const visible = (files || []).filter(f => f.name !== '.emptyFolderPlaceholder');
+    if (!visible.length) {
+      grid.innerHTML = '<div style="color:var(--muted); font-size:0.85rem;">No images yet.</div>';
+      return;
+    }
+    grid.innerHTML = visible.map(f => {
+      const url = sb.storage.from('announcements').getPublicUrl(f.name).data.publicUrl;
+      const safeUrl = url.replace(/'/g, "\\'");
+      return `<div style="cursor:pointer;border-radius:8px;overflow:hidden;border:2px solid var(--border);aspect-ratio:1;"
+                   onclick="pushSlide({type:'image',url:'${safeUrl}'})" title="Click to show on screen">
+                <img src="${url}" loading="lazy" style="width:100%;height:100%;object-fit:cover;" />
+              </div>`;
+    }).join('');
   }
 
   let _scrollTimer = null;

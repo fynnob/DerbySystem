@@ -133,7 +133,7 @@
     ({ ctx, event, eventId } = await adminBoot());
 
     // Fix nav link
-    document.getElementById("navHub").href = `/DerbySystem/admin#/${ctx.org}/${ctx.name}`;
+    document.getElementById("navHub").href = `/DerbySystem/admin/index.html#/${ctx.orgType}/${ctx.orgNumber}/${ctx.eventSeq}`;
 
     await loadTally();
     startScanner();

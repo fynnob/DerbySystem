@@ -18,6 +18,7 @@
   <!-- Registration form -->
   <div class="card">
     <div class="card-title">Register a Car</div>
+    <p id="expiryNotice" style="display:none; font-size:0.82rem; margin-bottom:12px; padding:8px 10px; border-radius:8px; background:var(--accent-bg); color:var(--accent); font-weight:600;"></p>
 
     <label for="kidName">Racer's Name</label>
     <input type="text" id="kidName" placeholder="e.g. Alex Johnson" maxlength="80"
@@ -66,20 +67,6 @@
   </div>
 </div>
 
-<!-- Email QR popup (shown after first registration if email is enabled) -->
-<div class="modal-overlay" id="emailQrModal" onclick="closeEmailQrModal(event)">
-  <div class="modal-sheet">
-    <div style="font-size:0.75rem; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">Get Your QR Code by Email</div>
-    <p style="font-size:0.88rem; color:var(--muted2); margin-bottom:16px; line-height:1.6;">
-      Enter your email and we'll send your check-in QR code — present it on race day instead of your phone.
-      <br><span style="font-size:0.78rem;">Only sent once per device.</span>
-    </p>
-    <label for="emailQrInput">Parent Email</label>
-    <input type="email" id="emailQrInput" placeholder="e.g. parent@example.com" autocomplete="email" />
-    <button class="btn btn-gold btn-full" style="margin-top:12px;" id="emailQrSendBtn" onclick="sendEmailFromPopup()">📧 Send QR Code</button>
-    <button class="btn btn-ghost btn-full" style="margin-top:8px;" onclick="closeEmailQrModal()">Skip</button>
-  </div>
-</div>
 
 <!-- Full-screen QR modal (bottom sheet on mobile) -->
 <div class="modal-overlay" id="qrModal" onclick="closeQR(event)">
@@ -117,6 +104,20 @@
       const result = await initPage();
       eventId   = result.eventId;
       STORE_KEY = 'derby_my_cars_' + eventId;
+
+      // Show event expiry notice
+      const _exp      = new Date(new Date(result.event.created_at).getTime() + 60 * 24 * 60 * 60 * 1000);
+      const _expStr   = _exp.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+      const _daysLeft = Math.ceil((_exp - Date.now()) / (1000 * 60 * 60 * 24));
+      const _notice   = document.getElementById('expiryNotice');
+      if (_notice) {
+        _notice.textContent = _daysLeft <= 14
+          ? `⚠ This event expires ${_expStr} (${_daysLeft} day${_daysLeft !== 1 ? 's' : ''} left) — register soon!`
+          : `Event active until ${_expStr}`;
+        _notice.style.display = '';
+        if (_daysLeft <= 14) _notice.style.background = 'var(--danger-bg)';
+        if (_daysLeft <= 14) _notice.style.color = 'var(--danger)';
+      }
     } catch {
       return; // die() already displayed the error
     }
@@ -200,14 +201,6 @@
       document.getElementById('kidName').value = '';
 
       toast(`Car #${car.car_number} registered! 🏁`);
-
-      const alreadySentEmail = localStorage.getItem('derby_email_sent');
-      if (!alreadySentEmail) {
-        try {
-          const { data: state } = await sb.from('race_state').select('email_enabled').eq('event_id', eventId).single();
-          if (state?.email_enabled) showEmailQrModal();
-        } catch { /* silently skip */ }
-      }
     } catch (err) {
       console.error(err);
       toast('Registration failed — ' + err.message, false);
@@ -465,46 +458,7 @@
     }).join('');
   }
 
-  // ── Email QR popup ───────────────────────────────────────────
-  function showEmailQrModal() {
-    document.getElementById('emailQrModal').classList.add('open');
-    document.getElementById('emailQrInput').focus();
-  }
-  function closeEmailQrModal(e) {
-    if (e && e.target !== document.getElementById('emailQrModal')) return;
-    document.getElementById('emailQrModal').classList.remove('open');
-  }
 
-  async function sendEmailFromPopup() {
-    const input = document.getElementById('emailQrInput');
-    const to = input.value.trim();
-    if (!to || !to.includes('@')) { input.focus(); return; }
-
-    const btn = document.getElementById('emailQrSendBtn');
-    btn.disabled = true;
-    btn.textContent = 'Sending…';
-
-    try {
-      const deviceToken = getDeviceToken();
-      const shortCode   = tokenToShortCode(deviceToken);
-      const { data: fnData, error: fnErr } = await sb.functions.invoke('send-registration-email', {
-        body: { to, device_token: deviceToken, short_code: shortCode, reg_url: location.href }
-      });
-      if (fnErr) throw fnErr;
-      localStorage.setItem('derby_email_sent', '1');
-      document.getElementById('emailQrModal').classList.remove('open');
-      toast('Check-in QR sent to your email! 📧');
-    } catch (err) {
-      console.error('Email send failed:', err);
-      btn.disabled = false;
-      btn.textContent = '📧 Send QR Code';
-      toast('Email failed: ' + (err?.message || String(err)), false);
-    }
-  }
-
-  document.getElementById('emailQrInput').addEventListener('keydown', e => {
-    if (e.key === 'Enter') sendEmailFromPopup();
-  });
 </script>
 </body>
 </html>
